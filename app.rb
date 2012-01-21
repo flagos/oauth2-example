@@ -95,5 +95,5 @@ class MyApp < Sinatra::Base
   get "/list_tokens" do
     oauth.list_access_tokens("Batman").map(&:token).join(" ")
   end
-  
+  run! if app_file == $0
 end
