@@ -25,7 +25,7 @@ end
 
 class MyApp < Sinatra::Base
   use Rack::Logger
- # set :sessions, true # https://github.com/rack/rack/issues/299
+  set :sessions, true
 
   register Rack::OAuth2::Sinatra
   oauth.authenticator = lambda do |username, password|
