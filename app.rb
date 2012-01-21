@@ -21,7 +21,10 @@ Rack::OAuth2::Server::Admin.configure do |config|
   config.oauth.logger = $logger
 end
 
-
+# client credentials
+Rack::OAuth2::Server::Admin.set :client_id, "4dca20453e4859cb000007"
+Rack::OAuth2::Server::Admin.set :client_secret, "981fa734e110496fcf667cbf52fbaf03"
+Rack::OAuth2::Server::Admin.set :scope, %w{read write}
 
 class MyApp < Sinatra::Base
   use Rack::Logger
