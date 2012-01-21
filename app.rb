@@ -5,13 +5,11 @@ require "rack/oauth2/server"
 require "rack/oauth2/server/admin"
 require "logger"
 
-
 DATABASE = SQLite3::Database.new("test.db")
+
 # get active record set up
 ActiveRecord::Base.establish_connection(:adapter => 'sqlite3', :database => "test.db")
-
-
-
+ActiveRecord::Migrator.migrate('db/migrate')
 
 $logger = Logger.new("test.log")
 $logger.level = Logger::DEBUG
