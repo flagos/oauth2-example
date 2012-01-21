@@ -68,6 +68,10 @@ class MyApp < Sinatra::Base
     end
   end
 
+  get "/camion" do
+    "pouet-pouet"
+  end
+
   oauth_required "/private", "/change"
 
   get "/private" do
