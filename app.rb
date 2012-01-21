@@ -1,4 +1,9 @@
+require 'sqlite3'
+require "active_record"
 require "rack/oauth2/sinatra"
+require "rack/oauth2/server"
+require "rack/oauth2/server/admin"
+require "logger"
 
 
 DATABASE = SQLite3::Database.new("test.db")
