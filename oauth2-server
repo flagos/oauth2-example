@@ -1,0 +1,180 @@
+#!/usr/bin/env ruby
+require 'sqlite3'
+require "active_record"
+require "rack/oauth2/server"
+
+require "uri"
+
+# this is a weird way to shorten the namespace
+include Rack::OAuth2
+
+if (i = ARGV.index("--port") || ARGV.index("-p")) && ARGV[i+1]
+  port = ARGV[i + 1].to_i
+  ARGV[i,2] = []
+end
+
+if (i = ARGV.index("--db")) && ARGV[i+1]
+  db = ARGV[i+1]
+  ActiveRecord::Base.establish_connection(:adapter => 'sqlite3', :database => db)
+end
+  
+
+
+case ARGV[0]
+when "list"
+
+  Server::Client.all.each do |client|
+    next if client.revoked
+    print "%-30s\t%s\n" % [client.display_name, client.link]
+    print "  ID %s\tSecret %s\n" % [client.id, client.secret]
+    print "\n"
+  end
+
+when "register"
+
+  begin
+    print "Application name:\t"
+    display_name = $stdin.gets
+    print "Application URL:\t"
+    link = $stdin.gets
+    print "Redirect URI:\t\t"
+    redirect_uri = $stdin.gets
+    print "Scope (space separated names):\t\t"
+    scope = $stdin.gets
+    client = Server::Client.create(:display_name=>display_name, :link=>link, :redirect_uri=>redirect_uri, :scope=>scope)
+  rescue
+    puts "\nFailed to register client: #{$!}"
+    exit -1
+  end
+  puts "Registered #{client.display_name}"
+  puts "ID\t#{client.id}"
+  puts "Secret\t#{client.secret}"
+
+when "setup"
+
+  puts "Where would you mount the Web console? This is a URL that must end with /admin,"
+  puts "for example, http://example.com/oauth/admin"
+  print ": "
+  uri = URI.parse($stdin.gets)
+  begin
+    uri.normalize!
+    fail "Not an HTTP/S URL" unless uri.absolute? && %{http https}.include?(uri.scheme)
+    fail "Path must end with /admin" unless uri.path[/\/admin$/]
+    client = Server::Client.create(:display_name=>"OAuth Console", :link=>uri.to_s, :image_url=>"#{uri.to_s}/images/oauth-2.png",
+                             :redirect_uri=>uri.to_s, :scope=>"oauth-admin")
+  rescue
+    puts "\nFailed to register client: #{$!}"
+    exit -1
+  end
+  print <<-TEXT
+
+Next Steps
+==========
+
+Make sure you ONLY authorize administrators to use the oauth-admin scope.
+For example:
+
+  before_filter do
+    # Only admins allowed to authorize the scope oauth-admin
+    head oauth.deny! if oauth.scope.include?("oauth-admin") && !current_user.admin?
+  end
+
+Rails 3.x, add the following to config/application.rb:
+
+  require "rack/oauth2/server/admin"
+
+  config.after_initialize do
+    Rack::OAuth2::Server::Admin.set :client_id, "#{client.id}"
+    Rack::OAuth2::Server::Admin.set :client_secret, "#{client.secret}"
+  end
+
+And add the following to config/routes.rb:
+
+  require "rack/oauth2/server/admin"
+
+  mount Rack::OAuth2::Server::Admin, :at => "/oauth/admin"
+  
+  match 'oauth/authorize' => 'oauth#authorize'
+  match 'oauth/grant' => 'oauth#grant'
+  match 'oauth/deny' => 'oauth#deny'
+
+Sinatra, Padrino and other Rack applications, mount the console:
+
+  Rack::Builder.new do
+    map("#{uri.path}") { run Rack::OAuth2::Server::Admin }
+    map("/") { run MyApp }
+  end
+  Rack::OAuth2::Server::Admin.set :client_id, "#{client.id}"
+  Rack::OAuth2::Server::Admin.set :client_secret, "#{client.secret}"
+
+The console will authorize access by redirecting to
+  https://#{uri.host}/oauth/authorize
+
+If this is not your OAuth 2.0 authorization endpoint, you can change it by
+setting the :authorize option.
+  TEXT
+
+when "practice"
+
+  require "logger"
+  begin
+    require "thin"
+  rescue LoadError
+    puts "Needs the Thin Web server. Please gem install thin and run again"
+    exit -1
+  end
+  require "rack/oauth2/server/practice"
+
+  # fail "No database. Use the --db option to tell us which database to use" unless Server.database
+  port ||= 8080
+  admin_url = "http://localhost:#{port}/oauth/admin"
+  unless client = Server::Client.lookup(admin_url)
+    client = Server::Client.create(:display_name=>"Practice OAuth Console", :image_url=>"#{admin_url}/images/oauth-2.png",
+                             :link=>admin_url, :redirect_uri=>admin_url, :scope=>"oauth-admin")
+  end
+  Server::Admin.configure do |config|
+    logger = Logger.new(STDOUT)
+    logger.level = Logger::DEBUG
+    config.set :client_id, client.id
+    config.set :client_secret, client.secret
+    config.set :scope, "nobody sudo"
+    config.set :logger, logger
+    config.set :logging, true
+    config.set :dump_errors, true
+    config.oauth.logger = logger
+  end
+
+  Server::Practice.configure do |config|
+    logger = Logger.new(STDOUT)
+    logger.level = Logger::DEBUG
+    config.set :logger, logger
+    config.set :logging, true
+    config.set :dump_errors, true
+    config.oauth.logger = logger
+  end
+
+  print "\nFiring up the practice server.\nFor instructions, go to http://localhost:#{port}/\n\n\n"
+  Thin::Server.new "127.0.0.1", port  do
+    map("/") { run Server::Practice.new }
+    map("/oauth/admin") { run Server::Admin.new }
+  end.start
+
+else
+
+  print <<-TEXT
+Usage: oauth2-server [options] COMMAND [args]
+Version #{Server::VERSION}
+
+Commands:
+  list            Lists all active clients
+  register        Register a new client application
+  setup           Create new admin account and help you setup the OAuth Web console
+  practice        Runs a dummy OAuth 2.0 server, use this to test your OAuth 2.0 client
+  
+Options:
+  --db path       Path to sqlite db file, for example db/development.sqlite3
+  --port number   Port to run admin server, detault is 8080
+  TEXT
+  exit -1
+
+end
